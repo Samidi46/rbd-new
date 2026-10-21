@@ -2,12 +2,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from math import comb, gamma
-from scipy import stats
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
 
 st.set_page_config(page_title="RBD PLTU Dashboard", layout="wide")
 st.title("⚡ RBD Visual Dashboard — PLTU")
@@ -38,10 +34,9 @@ def get_gsheet_client():
 def load_data(spreadsheet_id: str):
     client = get_gsheet_client()
     sh = client.open_by_key(spreadsheet_id)
-    
     df_struktur = pd.DataFrame(sh.worksheet("Struktur_RBD").get_all_records())
     
-    # Simulasi Data Availability (Nanti bisa disambungkan ke Weibull)
+    # Simulasi Data Availability 
     dummy_avail = {
         "FireProt": 0.99, "ProsesProt": 0.98, "ElecProt": 0.95, "EmergencyPower": 0.92,
         "ElecControl": 0.99, "CW": 0.75, 
@@ -76,18 +71,20 @@ def draw_rbd_html(df):
             color: {text_color};
             border: 1px solid #333;
             border-radius: 5px;
-            padding: 8px;
-            width: 140px;
+            padding: 6px;
+            width: 130px;
+            height: 60px;
             text-align: center;
             font-family: Arial, sans-serif;
-            font-size: 11px;
+            font-size: 10px;
             box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
-            margin: 5px;
+            margin: 0 4px;
             display: flex;
             flex-direction: column;
             justify-content: center;
+            align-items: center;
         ">
-            <strong style="font-size: 12px;">{row['ID']}. {row['Nama Sistem']}</strong>
+            <strong style="font-size: 11px;">{row['ID']}. {row['Nama Sistem']}</strong>
             <span>A: {row['Availability']*100:.2f}%</span>
         </div>
         """
@@ -100,53 +97,46 @@ def draw_rbd_html(df):
     html_content = f"""
     <div style="display: flex; flex-direction: column; align-items: center; overflow-x: auto; padding: 20px; background-color: #f9f9f9; border-radius: 10px;">
         
-        <!-- START NODE -->
-        <div style="display: flex; align-items: center; margin-bottom: 10px;">
-            <div style="background-color: #90EE90; padding: 10px 20px; border: 1px solid #333; border-radius: 5px; font-weight: bold;">START</div>
-            <div style="font-size: 24px; margin-left: 10px;">➡️</div>
-        </div>
-
-        <!-- BARIS 1 -->
-        <div style="display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;">
+        <!-- BARIS 1: START + ID 1-12 -->
+        <div style="display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; margin-bottom: 30px;">
+            <!-- START NODE -->
+            <div style="background-color: #90EE90; padding: 10px 20px; border: 1px solid #333; border-radius: 5px; font-weight: bold; margin-right: 10px; height: 40px; display: flex; align-items: center;">
+                START
+            </div>
+            <div style="font-size: 20px; color: #555; margin-right: 10px;">➡️</div>
     """
     
     for _, row in row1.iterrows():
         html_content += create_box(row)
-        html_content += "<div style='font-size: 20px; color: #555;'>➡️</div>"
+        html_content += "<div style='font-size: 20px; color: #555; margin: 0 4px;'>➡️</div>"
     
-    html_content = html_content.rsplit("<div style='font-size: 20px; color: #555;'>➡️</div>", 1)[0]
+    # Potong panah terakhir di baris 1
+    html_content = html_content.rsplit("<div style='font-size: 20px; color: #555; margin: 0 4px;'>➡️</div>", 1)[0]
 
     html_content += """
         </div>
         
-        <!-- KONEKTOR TURUN -->
-        <div style="display: flex; justify-content: flex-end; width: 100%; margin: 5px 0;">
-            <div style="width: 140px; text-align: center; font-size: 24px;">⬇️</div>
-        </div>
-
-        <!-- BARIS 2 -->
+        <!-- BARIS 2: STOP + ID 23-13 -->
         <div style="display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;">
+    """
+    
+    # STOP NODE (diletakkan di paling kiri Baris 2)
+    html_content += """
+            <div style="background-color: #FF6B6B; color: white; padding: 10px 20px; border: 1px solid #333; border-radius: 5px; font-weight: bold; margin-right: 10px; height: 40px; display: flex; align-items: center;">
+                STOP
+            </div>
+            <div style="font-size: 20px; color: #555; margin-right: 10px;">⬅️</div>
     """
     
     for _, row in row2.iterrows():
         html_content += create_box(row)
-        html_content += "<div style='font-size: 20px; color: #555;'>⬅️</div>"
+        html_content += "<div style='font-size: 20px; color: #555; margin: 0 4px;'>⬅️</div>"
         
-    html_content = html_content.rsplit("<div style='font-size: 20px; color: #555;'>⬅️</div>", 1)[0]
+    # Potong panah terakhir di baris 2
+    html_content = html_content.rsplit("<div style='font-size: 20px; color: #555; margin: 0 4px;'>⬅️</div>", 1)[0]
 
-    html_content += f"""
+    html_content += """
         </div>
-        
-        <!-- KONEKTOR TURUN KE STOP -->
-        <div style="display: flex; justify-content: flex-start; width: 100%; margin: 5px 0;">
-             <div style="width: 140px; text-align: center; font-size: 24px;">⬇️</div>
-        </div>
-
-        <!-- STOP NODE -->
-        <div style="display: flex; align-items: center; margin-top: 10px;">
-            <div style="background-color: #FF6B6B; color: white; padding: 10px 20px; border: 1px solid #333; border-radius: 5px; font-weight: bold;">STOP</div>
-        </div>
-        
     </div>
     """
     return html_content
@@ -167,7 +157,8 @@ try:
     
     # Render Diagram HTML
     html_diagram = draw_rbd_html(df_struktur)
-    components.html(html_diagram, height=450, scrolling=True)
+    # Karena sekarang hanya ada 2 baris, kita bisa hilangkan scroll horizontal bawaan HTML jika muat
+    components.html(html_diagram, height=250, scrolling=True)
     
     # Tampilkan Tabel Pendukung
     st.markdown("### 📊 Data Detail Sistem")
