@@ -1,121 +1,162 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
-import graphviz
+import matplotlib.pyplot as plt
+from math import comb, gamma
+from scipy import stats
 import gspread
 from google.oauth2.service_account import Credentials
+from datetime import datetime
 
 st.set_page_config(page_title="RBD PLTU Dashboard", layout="wide")
 st.title("⚡ RBD Visual Dashboard — PLTU")
-st.caption("Visualisasi Reliability Block Diagram. Warna merah = kritis, hijau = aman.")
+st.caption("Visualisasi Reliability Block Diagram. Data live dari Google Sheets.")
 
 # ============================================================
 # KONEKSI GOOGLE SHEETS
 # ============================================================
 @st.cache_resource
 def get_gsheet_client():
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    if "private_key" in creds_dict:
-        key = creds_dict["private_key"]
-        if "\\n" in key: key = key.replace("\\n", "\n")
-        creds_dict["private_key"] = key
-    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return gspread.authorize(creds)
+    try:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        if "private_key" in creds_dict:
+            key = creds_dict["private_key"]
+            if "\\n" in key: key = key.replace("\\n", "\n")
+            if "-----BEGIN PRIVATE KEY-----" not in key:
+                key = f"-----BEGIN PRIVATE KEY-----\n{key}\n-----END PRIVATE KEY-----\n"
+            creds_dict["private_key"] = key
+        scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly",
+                  "https://www.googleapis.com/auth/drive.readonly"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        return gspread.authorize(creds)
+    except Exception as e:
+        st.error(f"❌ Gagal koneksi ke Google: {e}")
+        st.stop()
 
 @st.cache_data(ttl=60)
-def load_data():
+def load_data(spreadsheet_id: str):
     client = get_gsheet_client()
-    sh = client.open_by_key(st.secrets["GSHEET_SPREADSHEET_ID"])
+    sh = client.open_by_key(spreadsheet_id)
     
-    # Baca sheet
     df_struktur = pd.DataFrame(sh.worksheet("Struktur_RBD").get_all_records())
     
-    # Simulasi Data Availability per Group (karena fokus ke visual, kita pakai nilai dummy dulu)
-    # Nanti bisa dihubungkan dengan perhitungan Weibull dari sheet Event_Log
+    # Simulasi Data Availability (Nanti bisa disambungkan ke Weibull)
     dummy_avail = {
         "FireProt": 0.99, "ProsesProt": 0.98, "ElecProt": 0.95, "EmergencyPower": 0.92,
-        "ElecControl": 0.99, "CW": 0.75, # <--- CW sengaja dibuat rendah (merah) seperti di gambar
+        "ElecControl": 0.99, "CW": 0.75, 
         "CCW": 0.90, "AirControl": 0.99, "CWT": 0.99, "FuelOil": 0.99,
         "AuxBoiler": 0.99, "Condensate": 0.99, "Feedwater": 0.85, "HeatGen": 0.98,
         "CoalHandling": 0.95, "Bunker": 0.98, "CombustionAir": 0.98, "BoilerFiring": 0.99,
-        "AshSlag": 0.95, "Steam": 0.99, "Turbine": 0.70, # <--- Turbine sengaja dibuat rendah
+        "AshSlag": 0.95, "Steam": 0.99, "Turbine": 0.70, 
         "Generator": 0.99, "Transmission": 0.99
     }
     
-    # Gabungkan data struktur dengan data availability
     df_struktur["Availability"] = df_struktur["Equipment_Group"].map(dummy_avail).fillna(0.99)
-    
     return df_struktur
 
 # ============================================================
-# RENDER DIAGRAM RBD (2 BARIS - RAPI & PASTI BERHASIL)
+# RENDER DIAGRAM RBD (HTML & CSS)
 # ============================================================
-def draw_rbd(df):
-    # Gunakan engine 'dot' standar
-    dot = graphviz.Digraph(engine='dot')
-    
-    # Atur jarak antar node
-    dot.attr(rankdir='LR', ranksep='0.4', nodesep='0.4')
-    dot.attr('node', shape='box', style='filled', fontname='Arial', fontsize='10', height='0.7', width='1.4')
-    
+def draw_rbd_html(df):
     def get_color(avail):
         if avail < 0.85: return '#FF6B6B' # Merah
         elif avail < 0.95: return '#FFD93D' # Kuning
         else: return '#6BCB77' # Hijau
-
-    # --- START NODE ---
-    dot.node('start', 'Start', shape='diamond', fillcolor='#90EE90')
-
-    # --- BARIS 1 (ID 1 - 12) ---
-    prev = 'start'
-    for _, row in df[df["ID"] <= 12].sort_values("ID").iterrows():
-        node_id = f"n{row['ID']}"
-        label = f"{row['ID']}. {row['Nama Sistem']}\nA: {row['Availability']*100:.2f}%"
-        dot.node(node_id, label, fillcolor=get_color(row['Availability']))
-        dot.edge(prev, node_id)
-        prev = node_id
-
-    # --- JEMBATAN TURUN (ID 12 ke ID 13) ---
-    # Kita buat node bayangan agar garisnya turun lurus ke bawah
-    dot.node('bridge', '', shape='point', width='0', style='invis')
-    dot.edge('n12', 'bridge', style='invis') # Garis tak terlihat
-    dot.edge('bridge', 'n13', style='invis') # Garis tak terlihat
-
-    # --- BARIS 2 (ID 13 - 23) ---
-    prev = 'bridge'
-    for _, row in df[df["ID"] > 12].sort_values("ID").iterrows():
-        node_id = f"n{row['ID']}"
-        label = f"{row['ID']}. {row['Nama Sistem']}\nA: {row['Availability']*100:.2f}%"
-        dot.node(node_id, label, fillcolor=get_color(row['Availability']))
-        dot.edge(prev, node_id)
-        prev = node_id
-
-    # --- STOP NODE ---
-    dot.node('stop', 'Stop', shape='diamond', fillcolor='#FF6B6B')
-    dot.edge(prev, 'stop')
-
-    # --- TRIK MUTLAK: Paksa Baris 2 Selalu di Bawah Baris 1 ---
-    with dot.subgraph() as s1:
-        s1.attr(rank='same')
-        s1.node('start')
-        s1.node('n1'); s1.node('n2'); s1.node('n3'); s1.node('n4'); s1.node('n5')
-        s1.node('n6'); s1.node('n7'); s1.node('n8'); s1.node('n9'); s1.node('n10')
-        s1.node('n11'); s1.node('n12')
-        
-    with dot.subgraph() as s2:
-        s2.attr(rank='same')
-        s2.node('n13'); s2.node('n14'); s2.node('n15'); s2.node('n16'); s2.node('n17')
-        s2.node('n18'); s2.node('n19'); s2.node('n20'); s2.node('n21'); s2.node('n22')
-        s2.node('n23'); s2.node('stop')
-
-    return dot
     
+    def get_text_color(avail):
+        return 'black' if 0.85 <= avail < 0.95 else 'white'
+
+    def create_box(row):
+        color = get_color(row['Availability'])
+        text_color = get_text_color(row['Availability'])
+        return f"""
+        <div style="
+            background-color: {color};
+            color: {text_color};
+            border: 1px solid #333;
+            border-radius: 5px;
+            padding: 8px;
+            width: 140px;
+            text-align: center;
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+            margin: 5px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        ">
+            <strong style="font-size: 12px;">{row['ID']}. {row['Nama Sistem']}</strong>
+            <span>A: {row['Availability']*100:.2f}%</span>
+        </div>
+        """
+
+    # Pisahkan baris
+    row1 = df[df["ID"] <= 12].sort_values("ID")
+    row2 = df[df["ID"] > 12].sort_values("ID", ascending=False) 
+
+    # Susun HTML
+    html_content = f"""
+    <div style="display: flex; flex-direction: column; align-items: center; overflow-x: auto; padding: 20px; background-color: #f9f9f9; border-radius: 10px;">
+        
+        <!-- START NODE -->
+        <div style="display: flex; align-items: center; margin-bottom: 10px;">
+            <div style="background-color: #90EE90; padding: 10px 20px; border: 1px solid #333; border-radius: 5px; font-weight: bold;">START</div>
+            <div style="font-size: 24px; margin-left: 10px;">➡️</div>
+        </div>
+
+        <!-- BARIS 1 -->
+        <div style="display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;">
+    """
+    
+    for _, row in row1.iterrows():
+        html_content += create_box(row)
+        html_content += "<div style='font-size: 20px; color: #555;'>➡️</div>"
+    
+    html_content = html_content.rsplit("<div style='font-size: 20px; color: #555;'>➡️</div>", 1)[0]
+
+    html_content += """
+        </div>
+        
+        <!-- KONEKTOR TURUN -->
+        <div style="display: flex; justify-content: flex-end; width: 100%; margin: 5px 0;">
+            <div style="width: 140px; text-align: center; font-size: 24px;">⬇️</div>
+        </div>
+
+        <!-- BARIS 2 -->
+        <div style="display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;">
+    """
+    
+    for _, row in row2.iterrows():
+        html_content += create_box(row)
+        html_content += "<div style='font-size: 20px; color: #555;'>⬅️</div>"
+        
+    html_content = html_content.rsplit("<div style='font-size: 20px; color: #555;'>⬅️</div>", 1)[0]
+
+    html_content += f"""
+        </div>
+        
+        <!-- KONEKTOR TURUN KE STOP -->
+        <div style="display: flex; justify-content: flex-start; width: 100%; margin: 5px 0;">
+             <div style="width: 140px; text-align: center; font-size: 24px;">⬇️</div>
+        </div>
+
+        <!-- STOP NODE -->
+        <div style="display: flex; align-items: center; margin-top: 10px;">
+            <div style="background-color: #FF6B6B; color: white; padding: 10px 20px; border: 1px solid #333; border-radius: 5px; font-weight: bold;">STOP</div>
+        </div>
+        
+    </div>
+    """
+    return html_content
+
 # ============================================================
 # MAIN APP
 # ============================================================
 try:
-    df_struktur = load_data()
+    spreadsheet_id = st.secrets["GSHEET_SPREADSHEET_ID"]
+    df_struktur = load_data(spreadsheet_id)
     
     st.markdown("### 🗺️ Peta Sistem PLTU")
     st.markdown("""
@@ -124,9 +165,9 @@ try:
     *   🟥 **Merah**: Availability < 85% (Kritis)
     """)
     
-    # Gambar diagram
-    graph = draw_rbd(df_struktur)
-    st.graphviz_chart(graph, use_container_width=True)
+    # Render Diagram HTML
+    html_diagram = draw_rbd_html(df_struktur)
+    components.html(html_diagram, height=450, scrolling=True)
     
     # Tampilkan Tabel Pendukung
     st.markdown("### 📊 Data Detail Sistem")
