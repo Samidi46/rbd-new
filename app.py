@@ -49,51 +49,62 @@ def load_data():
     return df_struktur
 
 # ============================================================
-# RENDER DIAGRAM RBD
+# RENDER DIAGRAM RBD (2 BARIS)
 # ============================================================
 def draw_rbd(df):
-    # Inisialisasi Graphviz (format dot)
+    # Inisialisasi Graphviz
     dot = graphviz.Digraph(engine='dot')
-    dot.attr(rankdir='LR', size='30,5') # Left to Right, ukuran landscape
+    dot.attr(rankdir='LR', size='40,10', nodesep='0.5', ranksep='0.5')
     dot.attr('node', shape='box', style='filled', fontname='Arial', fontsize='10')
     
-    # Start Node
+    def get_color(avail):
+        if avail < 0.85: return '#FF6B6B' # Merah
+        elif avail < 0.95: return '#FFD93D' # Kuning
+        else: return '#6BCB77' # Hijau
+
+    # --- START NODE ---
     dot.node('start', 'Start', shape='diamond', fillcolor='#90EE90')
     
-    # Grouping per Baris (karena gambar Anda ada 2 baris)
-    # Baris 1: ID 1-12
-    # Baris 2: ID 23-13 (dibalik karena arah panah dari kiri ke kanan)
-    
-    nodes_row1 = df[df["ID"] <= 12].sort_values("ID")
-    nodes_row2 = df[df["ID"] > 12].sort_values("ID", ascending=False) # Balik arah
-    
-    # Fungsi bantu untuk menentukan warna
-    def get_color(avail):
-        if avail < 0.85: return '#FF6B6B' # Merah (Kritis)
-        elif avail < 0.95: return '#FFD93D' # Kuning (Waspada)
-        else: return '#6BCB77' # Hijau (Aman)
-    
-    # --- GAMBAR BARIS 1 ---
-    prev_node = 'start'
-    for _, row in nodes_row1.iterrows():
-        node_id = f"n{row['ID']}"
-        label = f"{row['ID']}. {row['Nama Sistem']}\nA: {row['Availability']*100:.2f}%"
-        dot.node(node_id, label, fillcolor=get_color(row['Availability']))
-        dot.edge(prev_node, node_id)
-        prev_node = node_id
-    
-    # --- GAMBAR BARIS 2 (berawal dari ujung baris 1) ---
-    for _, row in nodes_row2.iterrows():
-        node_id = f"n{row['ID']}"
-        label = f"{row['ID']}. {row['Nama Sistem']}\nA: {row['Availability']*100:.2f}%"
-        dot.node(node_id, label, fillcolor=get_color(row['Availability']))
-        dot.edge(prev_node, node_id)
-        prev_node = node_id
-    
-    # Stop Node
+    # --- BARIS 1 (ID 1 - 12) ---
+    with dot.subgraph(name='cluster_row1') as c1:
+        c1.attr(style='invis') # Sembunyikan border cluster
+        prev = 'start'
+        for _, row in df[df["ID"] <= 12].sort_values("ID").iterrows():
+            node_id = f"n{row['ID']}"
+            label = f"{row['ID']}. {row['Nama Sistem']}\nA: {row['Availability']*100:.2f}%"
+            c1.node(node_id, label, fillcolor=get_color(row['Availability']))
+            c1.edge(prev, node_id)
+            prev = node_id
+
+    # --- BARIS 2 (ID 13 - 23) ---
+    # Kita urutkan dari ID 23 sampai 13 (dari kanan ke kiri)
+    with dot.subgraph(name='cluster_row2') as c2:
+        c2.attr(style='invis')
+        # Titik sambung imajiner di kiri baris 2
+        c2.node('row2_start', shape='point', width='0', style='invis')
+        
+        prev = 'row2_start'
+        for _, row in df[df["ID"] > 12].sort_values("ID", ascending=False).iterrows():
+            node_id = f"n{row['ID']}"
+            label = f"{row['ID']}. {row['Nama Sistem']}\nA: {row['Availability']*100:.2f}%"
+            c2.node(node_id, label, fillcolor=get_color(row['Availability']))
+            c2.edge(prev, node_id)
+            prev = node_id
+
+    # --- STOP NODE ---
     dot.node('stop', 'Stop', shape='diamond', fillcolor='#FF6B6B')
-    dot.edge(prev_node, 'stop')
-    
+    dot.edge(prev, 'stop')
+
+    # --- KONEKSI ANTAR BARIS ---
+    # Hubungkan ujung kanan baris 1 (ID 12) ke titik imajiner kiri baris 2
+    dot.edge('n12', 'row2_start', style='invis') # invisible edge untuk memaksa posisi
+
+    # Paksa Baris 1 dan Baris 2 berada di tingkat yang sama secara horizontal
+    with dot.subgraph() as s:
+        s.attr(rank='same')
+        s.node('start')
+        s.node('n23') # Ujung kiri baris 2 sejajar dengan start
+
     return dot
 
 # ============================================================
