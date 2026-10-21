@@ -44,7 +44,7 @@ def load_data(spreadsheet_id: str):
     }
     df_struktur["RI"] = df_struktur["Equipment_Group"].map(lambda x: dummy_data.get(x, {"RI": 0.99})["RI"])
     
-    # Load Data Sub-Sistem (Jika sheet belum ada, buat kosong)
+    # Load Data Sub-Sistem
     try:
         df_subs = pd.DataFrame(sh.worksheet("Detail_Sub_Sistem").get_all_records())
     except:
@@ -66,7 +66,7 @@ def get_text_color(ri):
     return 'black' if 0.41 <= ri < 0.81 else 'white'
 
 # ============================================================
-# RENDER DIAGRAM UTAMA (BISA DIKLIK)
+# RENDER DIAGRAM UTAMA
 # ============================================================
 def draw_main_rbd(df):
     def create_clickable_box(row):
@@ -95,9 +95,10 @@ def draw_main_rbd(df):
     row1 = df[df["ID"] <= 12].sort_values("ID")
     row2 = df[df["ID"] > 12].sort_values("ID", ascending=False) 
 
-    html = f"""<div style="display: flex; flex-direction: column; align-items: center; overflow-x: auto; padding: 20px; background-color: #f9f9f9; border-radius: 10px;">
+    # Gunakan padding yang cukup agar tidak terpotong
+    html = f"""<div style="display: flex; flex-direction: column; align-items: center; overflow-x: auto; padding: 20px; background-color: #f9f9f9; border-radius: 10px; min-width: max-content;">
         <!-- BARIS 1 -->
-        <div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 30px;">
+        <div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 20px;">
             <div style="background-color: #90EE90; padding: 10px 15px; border: 1px solid #333; border-radius: 5px; font-weight: bold; margin-right: 10px; height: 40px; display: flex; align-items: center;">START</div>
             <div style="font-size: 18px; color: #555; margin-right: 5px;">➡️</div>"""
     for _, row in row1.iterrows():
@@ -117,16 +118,15 @@ def draw_main_rbd(df):
     return html
 
 # ============================================================
-# RENDER SUB-DIAGRAM (SAAT DIKLIK)
+# RENDER SUB-DIAGRAM
 # ============================================================
 def draw_sub_rbd(sistem_id, nama_sistem, df_subs):
     df_filter = df_subs[df_subs["Sistem_ID"] == sistem_id]
     
     if df_filter.empty:
-        return "<div style='padding: 40px; text-align: center; background: #ffe4e1; border-radius: 10px;'><h3>⚠️ Detail RBD untuk sistem ini belum tersedia di database.</h3><p>Silakan isi Sheet 'Detail_Sub_Sistem'.</p></div>"
+        return "<div style='padding: 40px; text-align: center; background: #ffe4e1; border-radius: 10px;'><h3>⚠️ Detail RBD untuk sistem ini belum tersedia.</h3></div>"
 
-    # Render Sub-Sistem sebagai Kotak Berjajar (Bisa Series/Parallel tergantung kebutuhan)
-    html = f"""<div style="display: flex; flex-direction: column; align-items: center; padding: 20px; background-color: #e6f2ff; border-radius: 10px;">
+    html = f"""<div style="display: flex; flex-direction: column; align-items: center; padding: 20px; background-color: #e6f2ff; border-radius: 10px; min-width: max-content;">
         <h3 style="margin-bottom: 20px;">Detail RBD: {sistem_id}. {nama_sistem}</h3>
         <div style="display: flex; flex-direction: row; align-items: center;">
             <div style="font-size: 18px; color: #555; margin-right: 5px;">➡️</div>"""
@@ -147,24 +147,18 @@ def draw_sub_rbd(sistem_id, nama_sistem, df_subs):
     return html
 
 # ============================================================
-# MAIN APP LOGIC (NAVIGASI & ANTI-NESTING)
+# MAIN APP LOGIC
 # ============================================================
 try:
     spreadsheet_id = st.secrets["GSHEET_SPREADSHEET_ID"]
     df_struktur, df_subs = load_data(spreadsheet_id)
     
-    # Baca URL Query Parameter
     query_params = st.query_params
     sistem_id = query_params.get("sistem", None)
-    
-    # ID unik untuk iframe agar tidak terjadi penumpukan (nesting)
-    iframe_key = f"rbd_frame_{sistem_id if sistem_id else 'main'}"
     
     if sistem_id is not None:
         # --- TAMPILAN SUB-SISTEM ---
         sistem_id = int(sistem_id)
-        
-        # Cek apakah ID ada di dataframe
         if sistem_id not in df_struktur["ID"].values:
             st.error("Sistem tidak ditemukan.")
             st.stop()
@@ -172,15 +166,14 @@ try:
         row_sistem = df_struktur[df_struktur["ID"] == sistem_id].iloc[0]
         nama_sistem = row_sistem["Nama Sistem"]
         
-        # Trik: Gunakan query param "back=1" untuk memicu reload bersih
+        # Tombol Kembali dengan Hard Refresh
         if st.button("⬅️ Kembali ke Peta Utama", type="primary"):
             st.query_params.clear()
             st.rerun()
             
         st.subheader(f"🔍 Analisis Sub-Sistem: {nama_sistem}")
-        
-        # Bungkus HTML dengan ID unik
-        html_sub = f"<div id='{iframe_key}'>{draw_sub_rbd(sistem_id, nama_sistem, df_subs)}</div>"
+        html_sub = draw_sub_rbd(sistem_id, nama_sistem, df_subs)
+        # Tinggi 300px cukup untuk sub-sistem
         components.html(html_sub, height=300, scrolling=True)
         
     else:
@@ -192,10 +185,11 @@ try:
         🟩 **> 0.80** (Very Good) | 🟩 **0.61-0.80** (Good) | 🟨 **0.41-0.60** (Quite) | 🟥 **0.21-0.40** (Poor) | ⬛ **< 0.20** (Very Poor)
         """)
         
-        # Bungkus HTML dengan ID unik
-        html_main = f"<div id='{iframe_key}'>{draw_main_rbd(df_struktur)}</div>"
-        components.html(html_main, height=250, scrolling=True)
+        html_main = draw_main_rbd(df_struktur)
+        # TINGGI DITAMBAH JADI 400 AGAR TIDAK TERPOTONG
+        components.html(html_main, height=400, scrolling=True)
         
+        # Tabel HANYA DIPANGGIL SEKALI DI SINI
         st.markdown("### 📊 Data Detail Sistem")
         df_show = df_struktur[["ID", "Nama Sistem", "RI"]].copy()
         df_show["RI"] = (df_show["RI"] * 100).round(1)
@@ -203,4 +197,3 @@ try:
 
 except Exception as e:
     st.error(f"Terjadi kesalahan: {e}")
-    st.info("Pastikan Sheet 'Struktur_RBD' dan 'Detail_Sub_Sistem' sudah ada.")
