@@ -147,7 +147,7 @@ def draw_sub_rbd(sistem_id, nama_sistem, df_subs):
     return html
 
 # ============================================================
-# MAIN APP LOGIC (NAVIGASI)
+# MAIN APP LOGIC (NAVIGASI & ANTI-NESTING)
 # ============================================================
 try:
     spreadsheet_id = st.secrets["GSHEET_SPREADSHEET_ID"]
@@ -157,17 +157,30 @@ try:
     query_params = st.query_params
     sistem_id = query_params.get("sistem", None)
     
+    # ID unik untuk iframe agar tidak terjadi penumpukan (nesting)
+    iframe_key = f"rbd_frame_{sistem_id if sistem_id else 'main'}"
+    
     if sistem_id is not None:
         # --- TAMPILAN SUB-SISTEM ---
         sistem_id = int(sistem_id)
+        
+        # Cek apakah ID ada di dataframe
+        if sistem_id not in df_struktur["ID"].values:
+            st.error("Sistem tidak ditemukan.")
+            st.stop()
+            
         row_sistem = df_struktur[df_struktur["ID"] == sistem_id].iloc[0]
         nama_sistem = row_sistem["Nama Sistem"]
         
-        # Tombol Kembali
-        st.button("⬅️ Kembali ke Peta Utama", on_click=lambda: st.query_params.clear(), type="primary")
-        
+        # Trik: Gunakan query param "back=1" untuk memicu reload bersih
+        if st.button("⬅️ Kembali ke Peta Utama", type="primary"):
+            st.query_params.clear()
+            st.rerun()
+            
         st.subheader(f"🔍 Analisis Sub-Sistem: {nama_sistem}")
-        html_sub = draw_sub_rbd(sistem_id, nama_sistem, df_subs)
+        
+        # Bungkus HTML dengan ID unik
+        html_sub = f"<div id='{iframe_key}'>{draw_sub_rbd(sistem_id, nama_sistem, df_subs)}</div>"
         components.html(html_sub, height=300, scrolling=True)
         
     else:
@@ -179,7 +192,8 @@ try:
         🟩 **> 0.80** (Very Good) | 🟩 **0.61-0.80** (Good) | 🟨 **0.41-0.60** (Quite) | 🟥 **0.21-0.40** (Poor) | ⬛ **< 0.20** (Very Poor)
         """)
         
-        html_main = draw_main_rbd(df_struktur)
+        # Bungkus HTML dengan ID unik
+        html_main = f"<div id='{iframe_key}'>{draw_main_rbd(df_struktur)}</div>"
         components.html(html_main, height=250, scrolling=True)
         
         st.markdown("### 📊 Data Detail Sistem")
@@ -189,3 +203,4 @@ try:
 
 except Exception as e:
     st.error(f"Terjadi kesalahan: {e}")
+    st.info("Pastikan Sheet 'Struktur_RBD' dan 'Detail_Sub_Sistem' sudah ada.")
