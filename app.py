@@ -49,13 +49,13 @@ def load_data():
     return df_struktur
 
 # ============================================================
-# RENDER DIAGRAM RBD (2 BARIS)
+# RENDER DIAGRAM RBD (2 BARIS FINAL)
 # ============================================================
 def draw_rbd(df):
-    # Inisialisasi Graphviz
+    # Gunakan engine 'dot', matikan constraint global
     dot = graphviz.Digraph(engine='dot')
-    dot.attr(rankdir='LR', size='40,10', nodesep='0.5', ranksep='0.5')
-    dot.attr('node', shape='box', style='filled', fontname='Arial', fontsize='10')
+    dot.attr(rankdir='LR', ranksep='0.6', nodesep='0.4')
+    dot.attr('node', shape='box', style='filled', fontname='Arial', fontsize='10', height='0.8', width='1.5')
     
     def get_color(avail):
         if avail < 0.85: return '#FF6B6B' # Merah
@@ -64,10 +64,10 @@ def draw_rbd(df):
 
     # --- START NODE ---
     dot.node('start', 'Start', shape='diamond', fillcolor='#90EE90')
-    
+
     # --- BARIS 1 (ID 1 - 12) ---
     with dot.subgraph(name='cluster_row1') as c1:
-        c1.attr(style='invis') # Sembunyikan border cluster
+        c1.attr(style='invis') # Border tidak terlihat
         prev = 'start'
         for _, row in df[df["ID"] <= 12].sort_values("ID").iterrows():
             node_id = f"n{row['ID']}"
@@ -77,13 +77,13 @@ def draw_rbd(df):
             prev = node_id
 
     # --- BARIS 2 (ID 13 - 23) ---
-    # Kita urutkan dari ID 23 sampai 13 (dari kanan ke kiri)
     with dot.subgraph(name='cluster_row2') as c2:
         c2.attr(style='invis')
-        # Titik sambung imajiner di kiri baris 2
-        c2.node('row2_start', shape='point', width='0', style='invis')
+        # Titik start untuk baris 2
+        c2.node('row2_start', shape='point', width='0.1', style='invis')
         
         prev = 'row2_start'
+        # Urutkan dari 23 ke 13
         for _, row in df[df["ID"] > 12].sort_values("ID", ascending=False).iterrows():
             node_id = f"n{row['ID']}"
             label = f"{row['ID']}. {row['Nama Sistem']}\nA: {row['Availability']*100:.2f}%"
@@ -95,18 +95,12 @@ def draw_rbd(df):
     dot.node('stop', 'Stop', shape='diamond', fillcolor='#FF6B6B')
     dot.edge(prev, 'stop')
 
-    # --- KONEKSI ANTAR BARIS ---
-    # Hubungkan ujung kanan baris 1 (ID 12) ke titik imajiner kiri baris 2
-    dot.edge('n12', 'row2_start', style='invis') # invisible edge untuk memaksa posisi
-
-    # Paksa Baris 1 dan Baris 2 berada di tingkat yang sama secara horizontal
-    with dot.subgraph() as s:
-        s.attr(rank='same')
-        s.node('start')
-        s.node('n23') # Ujung kiri baris 2 sejajar dengan start
+    # --- KONEKSI ANTAR BARIS (PENTING) ---
+    # Gunakan constraint=false agar tidak memaksa garis lurus
+    dot.edge('n12', 'row2_start', style='invis', constraint='false')
 
     return dot
-
+    
 # ============================================================
 # MAIN APP
 # ============================================================
