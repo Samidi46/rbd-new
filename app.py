@@ -49,12 +49,13 @@ def load_data():
     return df_struktur
 
 # ============================================================
-# RENDER DIAGRAM RBD (2 BARIS FINAL)
+# RENDER DIAGRAM RBD (2 BARIS - POLA ULAR)
 # ============================================================
 def draw_rbd(df):
-    # Gunakan engine 'dot', matikan constraint global
     dot = graphviz.Digraph(engine='dot')
-    dot.attr(rankdir='LR', ranksep='0.6', nodesep='0.4')
+    
+    # Secara default, gambar dari kiri ke kanan
+    dot.attr(rankdir='LR', ranksep='0.8', nodesep='0.5')
     dot.attr('node', shape='box', style='filled', fontname='Arial', fontsize='10', height='0.8', width='1.5')
     
     def get_color(avail):
@@ -62,12 +63,12 @@ def draw_rbd(df):
         elif avail < 0.95: return '#FFD93D' # Kuning
         else: return '#6BCB77' # Hijau
 
-    # --- START NODE ---
+    # --- START NODE (Kiri Atas) ---
     dot.node('start', 'Start', shape='diamond', fillcolor='#90EE90')
 
-    # --- BARIS 1 (ID 1 - 12) ---
+    # --- BARIS 1: Start -> 1 -> 2 ... -> 12 (Kiri ke Kanan) ---
     with dot.subgraph(name='cluster_row1') as c1:
-        c1.attr(style='invis') # Border tidak terlihat
+        c1.attr(style='invis')
         prev = 'start'
         for _, row in df[df["ID"] <= 12].sort_values("ID").iterrows():
             node_id = f"n{row['ID']}"
@@ -76,29 +77,33 @@ def draw_rbd(df):
             c1.edge(prev, node_id)
             prev = node_id
 
-    # --- BARIS 2 (ID 13 - 23) ---
+    # --- BARIS 2: 23 -> 22 ... -> 13 -> Stop (Kanan ke Kiri) ---
+    # Untuk membalik arah panah, kita gunakan rankdir='RL' pada subgraph ini
     with dot.subgraph(name='cluster_row2') as c2:
-        c2.attr(style='invis')
-        # Titik start untuk baris 2
-        c2.node('row2_start', shape='point', width='0.1', style='invis')
+        c2.attr(style='invis', rankdir='RL') # <--- KUNCI UTAMANYA DI SINI
         
-        prev = 'row2_start'
-        # Urutkan dari 23 ke 13
-        for _, row in df[df["ID"] > 12].sort_values("ID", ascending=False).iterrows():
+        # Stop Node (Kiri Bawah)
+        c2.node('stop', 'Stop', shape='diamond', fillcolor='#FF6B6B')
+        
+        prev = 'stop'
+        # Kita gambar dari ID 13 ke 23, tapi karena rankdir='RL', panahnya akan mundur ke kiri
+        for _, row in df[df["ID"] > 12].sort_values("ID").iterrows():
             node_id = f"n{row['ID']}"
             label = f"{row['ID']}. {row['Nama Sistem']}\nA: {row['Availability']*100:.2f}%"
             c2.node(node_id, label, fillcolor=get_color(row['Availability']))
             c2.edge(prev, node_id)
             prev = node_id
 
-    # --- STOP NODE ---
-    dot.node('stop', 'Stop', shape='diamond', fillcolor='#FF6B6B')
-    dot.edge(prev, 'stop')
+    # --- KONEKSI ANTAR BARIS (ID 12 turun ke ID 13) ---
+    # constraint=false agar tidak merusak tata letak 2 baris
+    dot.edge('n12', 'n13', constraint='false', style='invis')
 
-    # --- KONEKSI ANTAR BARIS (PENTING) ---
-    # Gunakan constraint=false agar tidak memaksa garis lurus
-    dot.edge('n12', 'row2_start', style='invis', constraint='false')
-
+    # Paksa Start sejajar dengan ID 23, dan ID 12 sejajar dengan ID 13
+    with dot.subgraph() as s:
+        s.attr(rank='same')
+        s.node('start')
+        s.node('n23') # 23 di kanan atas? Tidak, kita paksa Start dan 23 sejajar di atas
+        
     return dot
     
 # ============================================================
